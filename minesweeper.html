@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>Minesweeper — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme:dark; --pink:#ff4b96; --cyan:#36e4ff; --yellow:#ffe34d; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,560px); text-align:center; }
+    .brand { color:var(--pink); font-size:clamp(20px,5.5vw,34px); letter-spacing:3px; text-shadow:0 0 10px var(--pink),0 0 26px #d41365; margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(10px,3vw,19px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #382c8840; }
+    .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#fff; font-size:clamp(8px,2vw,11px); padding:2px 3px 13px; }
+    .hud span { color:var(--cyan); }
+    .board { display:grid; grid-template-columns:repeat(10,minmax(0,1fr)); gap:3px; width:min(100%,420px); margin:auto; touch-action:manipulation; }
+    .cell { aspect-ratio:1; min-width:0; padding:0; border:1px solid #494568; border-radius:4px; background:#16152a; color:var(--cyan); font:clamp(10px,3vw,16px) 'Press Start 2P',monospace; cursor:pointer; }
+    .cell:hover:not(:disabled) { background:#272441; border-color:var(--pink); }
+    .cell:disabled { cursor:default; }
+    .cell.open { background:#09091a; border-color:#29263f; }
+    .cell.mine { background:#42152c; color:var(--pink); }
+    .message { min-height:32px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; }
+    .actions { display:flex; justify-content:center; gap:8px; margin-top:10px; }
+    .actions button,.topnav { padding:10px 14px; color:#aaa6c4; font:8px 'Press Start 2P',monospace; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; cursor:pointer; }
+    .actions button:hover,.topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2; }
+    .topnav { display:inline-block; margin-top:14px; }
+    @media(max-width:420px) { .board { gap:2px; } .cell { border-radius:3px; } }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1 class="brand">MINESWEEPER</h1>
+    <div class="subtitle">★&nbsp; JANGAN SAMPAI MELEDAK &nbsp;★</div>
+    <section class="screen" aria-label="Permainan Minesweeper">
+      <div class="hud"><div>RANJAU <span id="mineCount">15</span></div><div>WAKTU <span id="timer">000</span></div><div>HIGH <span id="best">000</span></div></div>
+      <div class="board" id="board" role="grid" aria-label="Papan 10 kali 10"></div>
+      <div class="message" id="message" aria-live="polite">BUKA KOTAK UNTUK MULAI · KLIK KANAN / TAHAN UNTUK BENDERA</div>
+      <div class="actions"><button id="restart" type="button">ULANGI</button></div>
+    </section>
+    <div class="controls">KLIK / SENTUH buka kotak &nbsp;·&nbsp; KLIK KANAN / TAHAN tandai ranjau</div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const SIZE = 10, MINES = 15;
+    const boardEl = document.getElementById('board');
+    const mineCountEl = document.getElementById('mineCount');
+    const timerEl = document.getElementById('timer');
+    const bestEl = document.getElementById('best');
+    const messageEl = document.getElementById('message');
+    const bestKey = 'minesweeper_best';
+    let cells, started, ended, flags, opened, elapsed, timer, holdTimer;
+
+    function startBoard() {
+      clearInterval(timer);
+      cells = Array.from({length: SIZE * SIZE}, () => ({mine:false, count:0, open:false, flag:false}));
+      started = false; ended = false; flags = 0; opened = 0; elapsed = 0;
+      timerEl.textContent = '000'; mineCountEl.textContent = String(MINES);
+      messageEl.textContent = 'BUKA KOTAK UNTUK MULAI · KLIK KANAN / TAHAN UNTUK BENDERA';
+      boardEl.replaceChildren();
+      cells.forEach((cell, i) => {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'cell'; button.setAttribute('role','gridcell');
+        button.setAttribute('aria-label', `Baris ${Math.floor(i / SIZE) + 1}, kolom ${i % SIZE + 1}, tertutup`);
+        button.addEventListener('click', () => reveal(i));
+        button.addEventListener('contextmenu', e => { e.preventDefault(); toggleFlag(i); });
+        let holdFired = false;
+        button.addEventListener('pointerdown', e => {
+          if (e.pointerType === 'touch') { holdFired = false; holdTimer = setTimeout(() => { holdFired = true; toggleFlag(i); }, 450); }
+        });
+        ['pointerup','pointerleave','pointercancel'].forEach(type => button.addEventListener(type, () => clearTimeout(holdTimer)));
+        button.addEventListener('click', e => { if (holdFired) { e.stopImmediatePropagation(); holdFired = false; } }, true);
+        boardEl.appendChild(button);
+      });
+    }
+
+    function neighbors(i) {
+      const x = i % SIZE, y = Math.floor(i / SIZE), result = [];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if ((dx || dy) && nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE) result.push(ny * SIZE + nx);
+      }
+      return result;
+    }
+
+    function placeMines(safeIndex) {
+      const excluded = new Set([safeIndex, ...neighbors(safeIndex)]);
+      const available = cells.map((_, i) => i).filter(i => !excluded.has(i));
+      for (let i = 0; i < MINES; i++) {
+        const pick = i + Math.floor(Math.random() * (available.length - i));
+        [available[i], available[pick]] = [available[pick], available[i]];
+        cells[available[i]].mine = true;
+      }
+      cells.forEach((cell, i) => { if (!cell.mine) cell.count = neighbors(i).filter(n => cells[n].mine).length; });
+    }
+
+    function render(i, revealMine = false) {
+      const cell = cells[i], button = boardEl.children[i];
+      button.disabled = ended || cell.open;
+      if (cell.flag && !cell.open) { button.textContent = '⚑'; button.setAttribute('aria-label', `Baris ${Math.floor(i / SIZE) + 1}, kolom ${i % SIZE + 1}, bendera`); return; }
+      if (!cell.open && !(revealMine && cell.mine)) return;
+      button.classList.add('open');
+      if (cell.mine) { button.textContent = '✹'; button.classList.add('mine'); button.setAttribute('aria-label','Ranjau'); }
+      else { button.textContent = cell.count || ''; button.setAttribute('aria-label', cell.count ? `${cell.count} ranjau di sekitar` : 'Kosong'); }
+    }
+
+    function reveal(i) {
+      const cell = cells[i];
+      if (ended || cell.open || cell.flag) return;
+      if (!started) { placeMines(i); started = true; timer = setInterval(() => { elapsed++; timerEl.textContent = String(Math.min(elapsed,999)).padStart(3,'0'); }, 1000); }
+      if (cell.mine) {
+        ended = true; clearInterval(timer); cells.forEach((c, n) => { if (c.mine) render(n, true); });
+        messageEl.textContent = 'BOOM! KALAH — TEKAN ULANGI UNTUK COBA LAGI';
+        return;
+      }
+      const queue = [i];
+      while (queue.length) {
+        const current = queue.pop(), currentCell = cells[current];
+        if (currentCell.open || currentCell.flag || currentCell.mine) continue;
+        currentCell.open = true; opened++; render(current);
+        if (currentCell.count === 0) queue.push(...neighbors(current));
+      }
+      if (opened === SIZE * SIZE - MINES) {
+        ended = true; clearInterval(timer);
+        const best = Number(localStorage.getItem(bestKey)) || 0;
+        if (!best || elapsed < best) localStorage.setItem(bestKey, String(elapsed));
+        bestEl.textContent = String(Math.min(Number(localStorage.getItem(bestKey)) || elapsed, 999)).padStart(3,'0');
+        messageEl.textContent = `MENANG! SELESAI DALAM ${elapsed} DETIK · TEKAN ULANGI`;
+      }
+    }
+
+    function toggleFlag(i) {
+      const cell = cells[i];
+      if (ended || cell.open || (!cell.flag && flags >= MINES)) return;
+      cell.flag = !cell.flag; flags += cell.flag ? 1 : -1;
+      mineCountEl.textContent = String(MINES - flags); render(i);
+    }
+
+    bestEl.textContent = String(Number(localStorage.getItem(bestKey)) || 0).padStart(3,'0');
+    document.getElementById('restart').addEventListener('click', startBoard);
+    startBoard();
+  })();
+  </script>
+</body>
+</html>
