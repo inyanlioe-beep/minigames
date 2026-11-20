@@ -16,8 +16,16 @@
     .screen { padding:clamp(12px,4vw,22px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #ff9b4230; }
     .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:clamp(8px,2.5vw,11px); padding:0 2px 14px; }
     .hud span { color:var(--yellow); }
-    .board { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:min(100%,400px); margin:auto; padding:8px; aspect-ratio:1; border-radius:8px; background:#19172b; touch-action:none; }
+    .board { --gap:8px; position:relative; display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,1fr); gap:var(--gap); width:min(100%,400px); margin:auto; padding:8px; aspect-ratio:1; border-radius:8px; background:#19172b; touch-action:none; overflow:hidden; }
     .tile { display:grid; place-items:center; min-width:0; border-radius:6px; background:#29263f; color:#aaa6c4; font-size:clamp(12px,4vw,22px); }
+    .tiles { position:absolute; inset:8px; pointer-events:none; }
+    .tile { position:relative; z-index:1; }
+    .tiles .tile { position:absolute; z-index:2; width:calc((100% - 3 * var(--gap)) / 4); height:calc((100% - 3 * var(--gap)) / 4); transition:transform 115ms ease-in-out; will-change:transform; }
+    .tiles .tile.merged { animation:merge-pop 130ms ease-out; }
+    .tiles .tile.spawned { animation:spawn-pop 130ms ease-out; }
+    @keyframes merge-pop { 50% { transform:var(--position) scale(1.13); } }
+    @keyframes spawn-pop { from { opacity:.5; transform:var(--position) scale(.65); } to { opacity:1; transform:var(--position) scale(1); } }
+    @media(prefers-reduced-motion:reduce) { .tiles .tile { transition:none; } .tiles .tile.merged,.tiles .tile.spawned { animation:none; } }
     .tile[data-value="2"] { background:#443c36; color:#ffe8c7; }.tile[data-value="4"] { background:#65503a; color:#fff0ce; }
     .tile[data-value="8"] { background:#b96832; color:#fff; }.tile[data-value="16"] { background:#d95535; color:#fff; }
     .tile[data-value="32"] { background:#d83f62; color:#fff; }.tile[data-value="64"] { background:#ff4b96; color:#fff; }
@@ -47,7 +55,7 @@
     const SIZE = 4, boardEl = document.getElementById('board');
     const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), messageEl = document.getElementById('message');
     const bestKey = '2048_best';
-    let grid, score, over, won, touchStart;
+    let grid, score, over, won, touchStart, animating = false, animationId = 0;
     bestEl.textContent = String(Number(localStorage.getItem(bestKey)) || 0);
 
     function render() {
@@ -62,36 +70,95 @@
       bestEl.textContent = String(Math.max(score, Number(localStorage.getItem(bestKey)) || 0));
     }
 
+    function positionTile(tile, index) {
+      const innerWidth = boardEl.clientWidth - 16;
+      const gap = 8;
+      const cell = (innerWidth - gap * (SIZE - 1)) / SIZE;
+      const x = index % SIZE, y = Math.floor(index / SIZE);
+      const transform = `translate(${x * (cell + gap)}px, ${y * (cell + gap)}px)`;
+      tile.style.width = `${cell}px`;
+      tile.style.height = `${cell}px`;
+      tile.style.setProperty('--position', transform);
+      tile.style.transform = transform;
+    }
+
+    function drawAnimatedTiles(tiles) {
+      boardEl.replaceChildren();
+      for (let i = 0; i < SIZE * SIZE; i++) {
+        const cell = document.createElement('div'); cell.className = 'tile'; cell.setAttribute('role','gridcell'); boardEl.appendChild(cell);
+      }
+      const layer = document.createElement('div'); layer.className = 'tiles'; boardEl.appendChild(layer);
+      tiles.forEach(item => {
+        const tile = document.createElement('div');
+        tile.className = 'tile' + (item.merged ? ' merged' : '') + (item.spawned ? ' spawned' : '');
+        tile.textContent = item.value; tile.dataset.value = String(item.value); tile.setAttribute('role','gridcell');
+        tile.setAttribute('aria-label', String(item.value));
+        positionTile(tile, item.from);
+        layer.appendChild(tile);
+        requestAnimationFrame(() => positionTile(tile, item.to));
+      });
+      scoreEl.textContent = String(score);
+      bestEl.textContent = String(Math.max(score, Number(localStorage.getItem(bestKey)) || 0));
+    }
+
     function spawn() {
       const empty = grid.map((v, i) => v ? -1 : i).filter(i => i >= 0);
       if (empty.length) grid[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
     }
 
     function newGame() {
+      animationId++;
+      animating = false;
       grid = Array(SIZE * SIZE).fill(0); score = 0; over = false; won = false;
       messageEl.textContent = 'GUNAKAN TOMBOL PANAH / WASD ATAU GESER';
       spawn(); spawn(); render();
     }
 
     function move(direction) {
-      if (over) return;
+      if (over || animating) return;
       const before = grid.join(','); let gained = 0;
+      const nextGrid = Array(SIZE * SIZE).fill(0), motions = [];
       for (let line = 0; line < SIZE; line++) {
         const indexes = Array.from({length:SIZE}, (_, pos) => direction === 'left' || direction === 'right'
           ? line * SIZE + (direction === 'left' ? pos : SIZE - 1 - pos)
           : (direction === 'up' ? pos : SIZE - 1 - pos) * SIZE + line);
-        const values = indexes.map(i => grid[i]).filter(Boolean), merged = [];
+        const values = indexes.map((index, pos) => ({value:grid[index], from:index, pos})).filter(item => item.value);
+        let dest = 0;
         for (let i = 0; i < values.length; i++) {
-          if (values[i] === values[i + 1]) { merged.push(values[i] * 2); gained += values[i] * 2; i++; }
-          else merged.push(values[i]);
+          const current = values[i], next = values[i + 1];
+          const to = indexes[dest++];
+          if (next && current.value === next.value) {
+            const mergedValue = current.value * 2;
+            nextGrid[to] = mergedValue; gained += mergedValue;
+            motions.push({value:mergedValue, from:current.from, to, merged:true});
+            motions.push({value:mergedValue, from:next.from, to, merged:true});
+            i++;
+          } else {
+            nextGrid[to] = current.value;
+            motions.push({value:current.value, from:current.from, to, merged:false});
+          }
         }
-        indexes.forEach((index, pos) => { grid[index] = merged[pos] || 0; });
       }
-      if (grid.join(',') === before) return;
+      if (nextGrid.join(',') === before) return;
+      grid = nextGrid;
       score += gained;
       const best = Number(localStorage.getItem(bestKey)) || 0;
       if (score > best) localStorage.setItem(bestKey, String(score));
-      spawn(); render();
+      const empty = grid.map((v, i) => v ? -1 : i).filter(i => i >= 0);
+      const spawnIndex = empty[Math.floor(Math.random() * empty.length)];
+      grid[spawnIndex] = Math.random() < 0.9 ? 2 : 4;
+      const id = ++animationId;
+      animating = true;
+      drawAnimatedTiles([...motions, {value:grid[spawnIndex], from:spawnIndex, to:spawnIndex, spawned:true}]);
+      setTimeout(() => {
+        if (id !== animationId) return;
+        animating = false;
+        render();
+        finishMove();
+      }, 135);
+    }
+
+    function finishMove() {
       if (!won && grid.includes(2048)) { won = true; messageEl.textContent = '2048! KAMU MENANG! LANJUTKAN ATAU MULAI BARU'; }
       if (!grid.includes(0) && !grid.some((v, i) => i % SIZE < SIZE - 1 && v === grid[i + 1] || i < SIZE * (SIZE - 1) && v === grid[i + SIZE])) {
         over = true; messageEl.textContent = 'TIDAK ADA LANGKAH LAGI — GAME OVER';

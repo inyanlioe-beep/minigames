@@ -40,7 +40,7 @@
     <div class="subtitle">★&nbsp; NEON BLOCK ARCADE &nbsp;★</div>
     <section class="screen" aria-label="Permainan Tetris">
       <div class="hud"><div>SKOR <span id="score">000000</span></div><div>LEVEL <span id="level">1</span></div><div>HIGH <span id="highScore">000000</span></div></div>
-      <canvas id="game" width="336" height="588" aria-label="Arena Tetris"></canvas>
+      <canvas id="game" width="394" height="590" aria-label="Arena Tetris"></canvas>
       <div class="message" id="message">TEKAN ENTER / SENTUH UNTUK MULAI</div>
     </section>
     <div class="controls"><b>← →</b> gerak &nbsp;·&nbsp; <b>↑</b> putar &nbsp;·&nbsp; <b>↓</b> turun cepat &nbsp;·&nbsp; <b>SPASI</b> jatuh langsung &nbsp;·&nbsp; <b>ENTER</b> mulai &nbsp;·&nbsp; <b>P</b> jeda</div>
@@ -57,7 +57,8 @@
     const highScoreEl = document.getElementById('highScore');
 
     const W = canvas.width, H = canvas.height;
-    const cell = 28, cols = 12, rows = 21;
+    const cell = 28, cols = 14, rows = 21;
+    const boardOffset = 1;
 
     const SHAPES = [
       [[1,1,1,1]],                     // I
@@ -152,7 +153,7 @@
         setTimeout(() => {
           for (const y of full){
             for (let x = 0; x < cols; x++){
-              spawnParticles(x * cell + cell / 2, y * cell + cell / 2, board[y][x]);
+              spawnParticles(boardOffset + x * cell + cell / 2, boardOffset + y * cell + cell / 2, board[y][x]);
               board[y][x] = null;
             }
           }
@@ -213,9 +214,9 @@
       ctx.fillStyle = color;
       ctx.shadowColor = color;
       ctx.shadowBlur = glow ? 14 : 4;
-      ctx.fillRect(x * cell + 2, y * cell + 2, cell - 4, cell - 4);
+      ctx.fillRect(boardOffset + x * cell + 2, boardOffset + y * cell + 2, cell - 4, cell - 4);
       ctx.fillStyle = '#ffffff40';
-      ctx.fillRect(x * cell + 2, y * cell + 2, cell - 4, 3);
+      ctx.fillRect(boardOffset + x * cell + 2, boardOffset + y * cell + 2, cell - 4, 3);
       ctx.shadowBlur = 0;
     }
 
@@ -224,22 +225,14 @@
       ctx.fillStyle = '#050513';
       ctx.fillRect(0, 0, W, H);
 
-      // dinding neon
-      ctx.strokeStyle = '#2f3fff';
-      ctx.lineWidth = 3;
-      ctx.shadowColor = '#2f3fff';
-      ctx.shadowBlur = 8;
-      ctx.strokeRect(4, 4, W - 8, H - 8);
-      ctx.shadowBlur = 0;
-
       // grid samar
       ctx.strokeStyle = '#101028';
       ctx.lineWidth = 1;
       for (let x = 1; x < cols; x++){
-        ctx.beginPath(); ctx.moveTo(x * cell, 6); ctx.lineTo(x * cell, H - 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(boardOffset + x * cell, boardOffset); ctx.lineTo(boardOffset + x * cell, H - boardOffset); ctx.stroke();
       }
       for (let y = 1; y < rows; y++){
-        ctx.beginPath(); ctx.moveTo(6, y * cell); ctx.lineTo(W - 6, y * cell); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(boardOffset, boardOffset + y * cell); ctx.lineTo(W - boardOffset, boardOffset + y * cell); ctx.stroke();
       }
 
       // balok terpasang
@@ -257,7 +250,7 @@
         ctx.lineWidth = 1.5;
         for (let y = 0; y < piece.shape.length; y++)
           for (let x = 0; x < piece.shape[y].length; x++)
-            if (piece.shape[y][x]) ctx.strokeRect((piece.x + x) * cell + 3, (gy + y) * cell + 3, cell - 6, cell - 6);
+            if (piece.shape[y][x]) ctx.strokeRect(boardOffset + (piece.x + x) * cell + 3, boardOffset + (gy + y) * cell + 3, cell - 6, cell - 6);
 
         // balok aktif
         for (let y = 0; y < piece.shape.length; y++)
@@ -283,6 +276,14 @@
         ctx.textAlign = 'center';
         ctx.fillText('JEDA', W / 2, H / 2);
       }
+
+      // Draw the frame last so edge blocks cannot cover its neon stroke.
+      ctx.strokeStyle = '#2f3fff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#2f3fff';
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(4, 4, W - 8, H - 8);
+      ctx.shadowBlur = 0;
     }
 
     function loop(t){
