@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>Memory Match — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme:dark; --cyan:#36e4ff; --yellow:#ffe34d; --pink:#ff4b96; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,480px); text-align:center; }
+    h1 { color:var(--cyan); font-size:clamp(20px,6vw,34px); letter-spacing:2px; text-shadow:0 0 12px #13dfff; margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(12px,4vw,22px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #36e4ff30; }
+    .hud { display:flex; justify-content:space-between; gap:8px; font-size:clamp(8px,2.5vw,11px); padding:0 2px 14px; }
+    .hud span { color:var(--yellow); }
+    .board { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; width:min(100%,400px); margin:auto; }
+    .card { display:grid; place-items:center; aspect-ratio:1; padding:0; border:1px solid #494568; border-radius:7px; background:#17152b; color:var(--cyan); font-size:clamp(18px,7vw,32px); cursor:pointer; transition:transform .15s ease,background .15s ease; }
+    .card:hover:not(:disabled) { transform:translateY(-2px); border-color:var(--cyan); }
+    .card.flipped { background:#22203a; box-shadow:inset 0 0 16px #36e4ff22; }
+    .card.matched { background:#163322; border-color:#7bff4d; cursor:default; }
+    .card:disabled { cursor:default; }
+    .message { min-height:35px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; }
+    button,.topnav { padding:10px 14px; color:#aaa6c4; font:8px 'Press Start 2P',monospace; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; cursor:pointer; }
+    button:hover,.topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2; }
+    .topnav { display:inline-block; margin-top:14px; }
+    @media(max-width:390px) { .board { gap:5px; } }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1>MEMORY MATCH</h1><div class="subtitle">★&nbsp; TEMUKAN SEMUA PASANGAN &nbsp;★</div>
+    <section class="screen" aria-label="Permainan Memory Match">
+      <div class="hud"><div>LANGKAH <span id="moves">0</span></div><div>WAKTU <span id="timer">000</span></div></div>
+      <div class="board" id="board" role="group" aria-label="16 kartu tertutup"></div>
+      <div class="message" id="message" aria-live="polite">BALIK DUA KARTU DAN CARI PASANGANNYA</div>
+      <button id="restart" type="button">GAME BARU</button>
+    </section>
+    <div class="controls">Pilih dua kartu untuk membuka pasangan</div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const symbols = ['🍒','🍋','🍇','🍉','⭐','💎','👾','🎮'];
+    const boardEl = document.getElementById('board'), movesEl = document.getElementById('moves');
+    const timerEl = document.getElementById('timer'), messageEl = document.getElementById('message');
+    let cards, first, locked, moves, matched, seconds, timer;
+
+    function newGame() {
+      clearInterval(timer); first = null; locked = false; moves = 0; matched = 0; seconds = 0;
+      movesEl.textContent = '0'; timerEl.textContent = '000'; messageEl.textContent = 'BALIK DUA KARTU DAN CARI PASANGANNYA';
+      cards = [...symbols, ...symbols].map((symbol, id) => ({symbol,id,shown:false,matched:false}));
+      for (let i = cards.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1)); [cards[i], cards[j]] = [cards[j], cards[i]];
+      }
+      boardEl.replaceChildren();
+      cards.forEach((card, index) => {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'card';
+        button.textContent = '?'; button.setAttribute('aria-label', `Kartu ${index + 1}, tertutup`);
+        button.addEventListener('click', () => flip(index)); boardEl.appendChild(button);
+      });
+    }
+
+    function flip(index) {
+      const card = cards[index];
+      if (locked || card.shown || card.matched) return;
+      if (!timer) timer = setInterval(() => { seconds++; timerEl.textContent = String(Math.min(seconds,999)).padStart(3,'0'); }, 1000);
+      card.shown = true; drawCard(index);
+      if (first === null) { first = index; return; }
+      moves++; movesEl.textContent = String(moves);
+      if (cards[first].symbol === card.symbol) {
+        cards[first].matched = true; card.matched = true; matched += 2;
+        drawCard(first); drawCard(index); first = null;
+        if (matched === cards.length) { clearInterval(timer); messageEl.textContent = `MENANG! ${moves} LANGKAH · ${seconds} DETIK`; }
+      } else {
+        locked = true; const previous = first; first = null;
+        setTimeout(() => {
+          cards[previous].shown = false; card.shown = false;
+          drawCard(previous); drawCard(index); locked = false;
+        }, 750);
+      }
+    }
+
+    function drawCard(index) {
+      const card = cards[index], button = boardEl.children[index];
+      button.textContent = card.shown || card.matched ? card.symbol : '?';
+      button.classList.toggle('flipped', card.shown || card.matched);
+      button.classList.toggle('matched', card.matched);
+      button.disabled = card.matched;
+      button.setAttribute('aria-label', card.matched ? `Pasangan ${card.symbol}` : card.shown ? `Kartu ${card.symbol}` : `Kartu ${index + 1}, tertutup`);
+    }
+
+    document.getElementById('restart').addEventListener('click', newGame);
+    newGame();
+  })();
+  </script>
+</body>
+</html>

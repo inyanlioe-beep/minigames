@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>2048 — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme:dark; --orange:#ff9b42; --yellow:#ffe34d; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,480px); text-align:center; }
+    h1 { color:var(--orange); font-size:clamp(28px,8vw,48px); letter-spacing:5px; text-shadow:0 0 12px var(--orange); margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(12px,4vw,22px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #ff9b4230; }
+    .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:clamp(8px,2.5vw,11px); padding:0 2px 14px; }
+    .hud span { color:var(--yellow); }
+    .board { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:min(100%,400px); margin:auto; padding:8px; aspect-ratio:1; border-radius:8px; background:#19172b; touch-action:none; }
+    .tile { display:grid; place-items:center; min-width:0; border-radius:6px; background:#29263f; color:#aaa6c4; font-size:clamp(12px,4vw,22px); }
+    .tile[data-value="2"] { background:#443c36; color:#ffe8c7; }.tile[data-value="4"] { background:#65503a; color:#fff0ce; }
+    .tile[data-value="8"] { background:#b96832; color:#fff; }.tile[data-value="16"] { background:#d95535; color:#fff; }
+    .tile[data-value="32"] { background:#d83f62; color:#fff; }.tile[data-value="64"] { background:#ff4b96; color:#fff; }
+    .tile[data-value="128"] { background:#c78b27; color:#fff; font-size:clamp(10px,3vw,17px); }.tile[data-value="256"] { background:#d6a72c; color:#fff; font-size:clamp(10px,3vw,17px); }
+    .tile[data-value="512"],.tile[data-value="1024"],.tile[data-value="2048"] { background:#ffe34d; color:#241b08; font-size:clamp(9px,2.6vw,15px); box-shadow:0 0 16px #ffe34d66; }
+    .message { min-height:35px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; }
+    button,.topnav { padding:10px 14px; color:#aaa6c4; font:8px 'Press Start 2P',monospace; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; cursor:pointer; }
+    button:hover,.topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2; }
+    .topnav { display:inline-block; margin-top:14px; }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1>2048</h1><div class="subtitle">★&nbsp; GABUNGKAN ANGKANYA &nbsp;★</div>
+    <section class="screen" aria-label="Permainan 2048">
+      <div class="hud"><div>SKOR <span id="score">0</span></div><div>TERBAIK <span id="best">0</span></div></div>
+      <div class="board" id="board" role="grid" aria-label="Papan 2048"></div>
+      <div class="message" id="message" aria-live="polite">GUNAKAN TOMBOL PANAH / WASD ATAU GESER</div>
+      <button id="restart" type="button">GAME BARU</button>
+    </section>
+    <div class="controls">↑ ↓ ← → / W A S D / GESER untuk menggerakkan ubin</div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const SIZE = 4, boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), messageEl = document.getElementById('message');
+    const bestKey = '2048_best';
+    let grid, score, over, won, touchStart;
+    bestEl.textContent = String(Number(localStorage.getItem(bestKey)) || 0);
+
+    function render() {
+      boardEl.replaceChildren();
+      grid.forEach((value, index) => {
+        const tile = document.createElement('div'); tile.className = 'tile'; tile.setAttribute('role','gridcell');
+        tile.textContent = value || ''; tile.setAttribute('aria-label', value ? String(value) : 'Kosong');
+        if (value) tile.dataset.value = String(value);
+        boardEl.appendChild(tile);
+      });
+      scoreEl.textContent = String(score);
+      bestEl.textContent = String(Math.max(score, Number(localStorage.getItem(bestKey)) || 0));
+    }
+
+    function spawn() {
+      const empty = grid.map((v, i) => v ? -1 : i).filter(i => i >= 0);
+      if (empty.length) grid[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
+    }
+
+    function newGame() {
+      grid = Array(SIZE * SIZE).fill(0); score = 0; over = false; won = false;
+      messageEl.textContent = 'GUNAKAN TOMBOL PANAH / WASD ATAU GESER';
+      spawn(); spawn(); render();
+    }
+
+    function move(direction) {
+      if (over) return;
+      const before = grid.join(','); let gained = 0;
+      for (let line = 0; line < SIZE; line++) {
+        const indexes = Array.from({length:SIZE}, (_, pos) => direction === 'left' || direction === 'right'
+          ? line * SIZE + (direction === 'left' ? pos : SIZE - 1 - pos)
+          : (direction === 'up' ? pos : SIZE - 1 - pos) * SIZE + line);
+        const values = indexes.map(i => grid[i]).filter(Boolean), merged = [];
+        for (let i = 0; i < values.length; i++) {
+          if (values[i] === values[i + 1]) { merged.push(values[i] * 2); gained += values[i] * 2; i++; }
+          else merged.push(values[i]);
+        }
+        indexes.forEach((index, pos) => { grid[index] = merged[pos] || 0; });
+      }
+      if (grid.join(',') === before) return;
+      score += gained;
+      const best = Number(localStorage.getItem(bestKey)) || 0;
+      if (score > best) localStorage.setItem(bestKey, String(score));
+      spawn(); render();
+      if (!won && grid.includes(2048)) { won = true; messageEl.textContent = '2048! KAMU MENANG! LANJUTKAN ATAU MULAI BARU'; }
+      if (!grid.includes(0) && !grid.some((v, i) => i % SIZE < SIZE - 1 && v === grid[i + 1] || i < SIZE * (SIZE - 1) && v === grid[i + SIZE])) {
+        over = true; messageEl.textContent = 'TIDAK ADA LANGKAH LAGI — GAME OVER';
+      }
+    }
+
+    const keys = {ArrowUp:'up',w:'up',ArrowDown:'down',s:'down',ArrowLeft:'left',a:'left',ArrowRight:'right',d:'right'};
+    window.addEventListener('keydown', event => {
+      const direction = keys[event.key] || keys[event.key.toLowerCase()];
+      if (direction) { event.preventDefault(); move(direction); }
+    });
+    boardEl.addEventListener('pointerdown', event => { touchStart = {x:event.clientX,y:event.clientY}; });
+    boardEl.addEventListener('pointerup', event => {
+      if (!touchStart) return;
+      const dx = event.clientX - touchStart.x, dy = event.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+      move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    });
+    document.getElementById('restart').addEventListener('click', newGame);
+    newGame();
+  })();
+  </script>
+</body>
+</html>
