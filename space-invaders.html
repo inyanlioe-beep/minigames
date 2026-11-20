@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>Space Invaders — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme: dark; --yellow:#ffe34d; --cyan:#36e4ff; --green:#7bff4d; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,560px); text-align:center; }
+    .brand { color:var(--green,#7bff4d); font-size:clamp(20px,5.5vw,34px); letter-spacing:4px; text-shadow:0 0 10px #7bff4d,0 0 26px #2fd413; margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(10px,3vw,19px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #382c8840; }
+    .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#fff; font-size:clamp(8px,2vw,11px); padding:2px 3px 13px; }
+    .hud span { color:#7bff4d; }
+    canvas { display:block; width:100%; height:auto; max-height:calc(100dvh - 200px); object-fit:contain; margin:0 auto; image-rendering:pixelated; background:#050513; border:1px solid #25223c; border-radius:3px; touch-action:none; }
+    @media (pointer:coarse) { canvas { max-height:calc(100dvh - 330px); } }
+    .message { min-height:30px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; text-shadow:0 0 10px #ffbd28; cursor:pointer; user-select:none; }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2.1; }
+    .controls b { color:#d3d0e6; }
+    .pad { display:none; width:220px; margin:12px auto 0; grid-template:repeat(2,48px)/repeat(3,48px); gap:3px; touch-action:none; }
+    .pad button { border:1px solid #494568; border-radius:7px; color:#7bff4d; background:#16152a; font-size:16px; font-family:inherit; touch-action:none; }
+    .pad button:active { background:#393354; }
+    .pad .left { grid-column:1; grid-row:1 / span 2; align-self:center; height:100%; }
+    .pad .fire { grid-column:2; grid-row:1; color:#ff4b96; }
+    .pad .right { grid-column:3; grid-row:1 / span 2; align-self:center; height:100%; }
+    .pad .autofire { grid-column:2; grid-row:2; font-size:10px; }
+    @media (pointer:coarse) { .pad { display:grid; } .controls { display:none; } }
+    .topnav { display:inline-block; margin-top:14px; padding:10px 16px; color:#77758f; font-size:9px; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; }
+    .topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1 class="brand">SPACE INVADERS</h1>
+    <div class="subtitle">★&nbsp; NEON INVASION ARCADE &nbsp;★</div>
+    <section class="screen" aria-label="Permainan Space Invaders">
+      <div class="hud"><div>SKOR <span id="score">000000</span></div><div>GELOMBANG <span id="wave">1</span></div><div>HIGH <span id="highScore">000000</span></div></div>
+      <canvas id="game" width="504" height="546" aria-label="Arena Space Invaders"></canvas>
+      <div class="message" id="message">TEKAN ENTER / SENTUH UNTUK MULAI</div>
+    </section>
+    <div class="controls"><b>← →</b> / <b>A D</b> / <b>MOUSE</b> gerak &nbsp;·&nbsp; <b>SPASI</b> tembak &nbsp;·&nbsp; <b>ENTER</b> mulai &nbsp;·&nbsp; <b>P</b> jeda</div>
+    <div class="pad" aria-label="Kontrol sentuh"><button class="left" data-act="left">◀</button><button class="fire" data-act="fire">🔥</button><button class="right" data-act="right">▶</button><button class="autofire" data-act="autofire">AUTO</button></div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const waveEl = document.getElementById('wave');
+    const messageEl = document.getElementById('message');
+    const highScoreEl = document.getElementById('highScore');
+
+    const W = canvas.width, H = canvas.height;
+    const shipW = 34, shipH = 16;
+    const invaderW = 26, invaderH = 20;
+    const COLS = 10, ROWS = 5;
+    const ROW_COLORS = ['#b787ff','#ff4b96','#ff9b31','#7bff4d','#36e4ff'];
+    const ROW_POINTS = [30, 25, 20, 15, 10];
+    const FORMATION_TOP = 56;
+    const H_SPACING = 44, V_SPACING = 38;
+    const BUNKER_W = 64, BUNKER_H = 30, BUNKER_CELLS = 8;
+
+    let score, wave, state, tick, last, raf, accumulator, highScore, particles, shakeT;
+    let ship, bullets, invBullets, invaders, bunkers, invDir, invStepTimer, invFireTimer, moveInterval;
+
+    highScore = parseInt(localStorage.getItem('invaders_highscore')) || 0;
+    const fmt = n => String(n).padStart(6, '0');
+
+    function updateHud(){
+      scoreEl.textContent = fmt(score);
+      waveEl.textContent = wave;
+      highScoreEl.textContent = fmt(Math.max(highScore, score));
+    }
+
+    function makeInvaders(){
+      const list = [];
+      for (let r = 0; r < ROWS; r++){
+        for (let c = 0; c < COLS; c++){
+          list.push({
+            x: (W - (COLS - 1) * H_SPACING) / 2 + c * H_SPACING,
+            y: FORMATION_TOP + r * V_SPACING,
+            row: r, alive: true, anim: 0
+          });
+        }
+      }
+      return list;
+    }
+
+    function makeBunkers(){
+      const list = [];
+      const n = 4;
+      const gap = (W - n * BUNKER_W) / (n + 1);
+      for (let i = 0; i < n; i++){
+        const bx = gap + i * (BUNKER_W + gap);
+        const by = H - 120;
+        const cells = [];
+        const cw = BUNKER_W / BUNKER_CELLS, ch = BUNKER_H / 4;
+        for (let cy = 0; cy < 4; cy++){
+          for (let cx = 0; cx < BUNKER_CELLS; cx++){
+            // bentuk bunker dengan celah di tengah bawah
+            if (cy >= 2 && cx >= 3 && cx <= 4) continue;
+            cells.push({x: bx + cx * cw, y: by + cy * ch, w: cw, h: ch, alive: true});
+          }
+        }
+        list.push({x: bx, y: by, cells});
+      }
+      return list;
+    }
+
+    function startGame(){
+      score = 0;
+      wave = 1;
+      ship = {x: W / 2, y: H - 46, w: shipW, h: shipH, move: 0, cool: 0};
+      bullets = [];
+      invBullets = [];
+      invaders = makeInvaders();
+      bunkers = makeBunkers();
+      invDir = 1;
+      invStepTimer = 0;
+      invFireTimer = 0;
+      moveInterval = 60;
+      particles = [];
+      shakeT = 0;
+      state = 'playing';
+      messageEl.textContent = '';
+      updateHud();
+    }
+
+    function nextWave(){
+      wave++;
+      invaders = makeInvaders();
+      bunkers = makeBunkers();
+      invDir = 1;
+      moveInterval = Math.max(22, 60 - (wave - 1) * 6);
+      invBullets = [];
+      updateHud();
+      messageEl.textContent = 'GELOMBANG ' + wave + '!';
+      setTimeout(() => { if (state === 'playing') messageEl.textContent = ''; }, 1600);
+    }
+
+    function spawnParticles(x, y, color){
+      for (let i = 0; i < 12; i++){
+        const a = Math.random() * Math.PI * 2;
+        const s = 1 + Math.random() * 3.5;
+        particles.push({x, y, dx: Math.cos(a) * s, dy: Math.sin(a) * s, life: 1, color});
+      }
+    }
+
+    function gameOver(){
+      state = 'over';
+      highScore = Math.max(highScore, score);
+      localStorage.setItem('invaders_highscore', highScore);
+      messageEl.textContent = 'GAME OVER — SKOR ' + fmt(score) + ' · TEKAN ENTER / SENTUH';
+      updateHud();
+    }
+
+    function fire(){
+      if (ship.cool > 0 || state !== 'playing') return;
+      bullets.push({x: ship.x, y: ship.y - shipH / 2 - 4, dy: -9});
+      ship.cool = 14;
+    }
+
+    function step(){
+      tick++;
+      if (shakeT > 0) shakeT--;
+      if (ship.cool > 0) ship.cool--;
+
+      // gerak kapal
+      ship.x += ship.move * 4.6;
+      ship.x = Math.max(shipW / 2 + 6, Math.min(W - shipW / 2 - 6, ship.x));
+
+      // peluru pemain
+      for (const b of bullets) b.y += b.dy;
+      bullets = bullets.filter(b => {
+        if (b.y < 8) return false;
+        for (const inv of invaders){
+          if (!inv.alive) continue;
+          if (Math.abs(b.x - inv.x) < invaderW / 2 + 3 && Math.abs(b.y - inv.y) < invaderH / 2 + 3){
+            inv.alive = false;
+            score += ROW_POINTS[inv.row];
+            spawnParticles(inv.x, inv.y, ROW_COLORS[inv.row]);
+            // percepat langkah formasi saat jumlah berkurang
+            const aliveCount = invaders.filter(i => i.alive).length;
+            moveInterval = Math.max(10, 60 - (wave - 1) * 6 - (COLS * ROWS - aliveCount));
+            updateHud();
+            return false;
+          }
+        }
+        // peluru menghancurkan bunker
+        for (const bk of bunkers){
+          for (const c of bk.cells){
+            if (c.alive && b.x > c.x && b.x < c.x + c.w && b.y > c.y && b.y < c.y + c.h){
+              c.alive = false;
+              spawnParticles(c.x + c.w / 2, c.y + c.h / 2, '#2f6bff');
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+
+      // langkah formasi invader
+      if (!invaders.some(i => i.alive)){
+        nextWave();
+        return;
+      }
+      invStepTimer++;
+      if (invStepTimer >= moveInterval){
+        invStepTimer = 0;
+        const alive = invaders.filter(i => i.alive);
+        const minX = Math.min(...alive.map(i => i.x));
+        const maxX = Math.max(...alive.map(i => i.x));
+        let drop = false;
+        if (invDir > 0 && maxX + H_SPACING / 2 > W - 24){ invDir = -1; drop = true; }
+        else if (invDir < 0 && minX - H_SPACING / 2 < 24){ invDir = 1; drop = true; }
+        for (const i of alive){
+          i.x += invDir * (drop ? 0 : 14);
+          if (drop) i.y += 20;
+        }
+        for (const i of alive) i.anim ^= 1;
+        // game over jika invader mencapai bunker/kapal
+        if (alive.some(i => i.y + invaderH / 2 >= ship.y - shipH)) gameOver();
+      }
+
+      // peluru invader
+      invFireTimer++;
+      if (invFireTimer >= Math.max(20, 46 - wave * 3)){
+        invFireTimer = 0;
+        const alive = invaders.filter(i => i.alive);
+        if (alive.length){
+          const shooter = alive[Math.floor(Math.random() * alive.length)];
+          invBullets.push({x: shooter.x, y: shooter.y + invaderH / 2, dy: 3.6 + wave * 0.3});
+        }
+      }
+      for (const b of invBullets) b.y += b.dy;
+      invBullets = invBullets.filter(b => {
+        if (b.y > H) return false;
+        // kena kapal
+        if (Math.abs(b.x - ship.x) < shipW / 2 + 3 && Math.abs(b.y - ship.y) < shipH / 2 + 4){
+          spawnParticles(ship.x, ship.y, '#ffe34d');
+          shakeT = 14;
+          gameOver();
+          return false;
+        }
+        // peluru menembus bunker
+        for (const bk of bunkers){
+          for (const c of bk.cells){
+            if (c.alive && b.x > c.x && b.x < c.x + c.w && b.y > c.y && b.y < c.y + c.h){
+              c.alive = false;
+              spawnParticles(c.x + c.w / 2, c.y + c.h / 2, '#2f6bff');
+              return false;
+            }
+          }
+        }
+        return true;
+      });
+    }
+
+    function drawShip(x, y){
+      ctx.fillStyle = '#ffe34d';
+      ctx.shadowColor = '#ffbd28';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(x, y - shipH / 2);
+      ctx.lineTo(x + shipW / 2, y + shipH / 2);
+      ctx.lineTo(x - shipW / 2, y + shipH / 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ff4b96';
+      ctx.fillRect(x - 4, y + shipH / 2, 8, 4);
+      ctx.shadowBlur = 0;
+    }
+
+    function drawInvader(inv){
+      ctx.fillStyle = ROW_COLORS[inv.row];
+      ctx.shadowColor = ROW_COLORS[inv.row];
+      ctx.shadowBlur = 8;
+      const w = invaderW, h = invaderH;
+      if (inv.anim === 0){
+        // sayap atas
+        ctx.fillRect(inv.x - w / 2, inv.y - h / 2, w, 6);
+        ctx.fillRect(inv.x - w / 2 + 3, inv.y - h / 2 + 6, w - 12, 4);
+        ctx.fillRect(inv.x - w / 2 + 6, inv.y - h / 2 + 10, w - 20, 6);
+        ctx.fillRect(inv.x - w / 2 + 2, inv.y + h / 2 - 4, 5, 4);
+        ctx.fillRect(inv.x + w / 2 - 7, inv.y + h / 2 - 4, 5, 4);
+      } else {
+        // sayap bawah
+        ctx.fillRect(inv.x - w / 2 + 4, inv.y - h / 2, w - 8, 6);
+        ctx.fillRect(inv.x - w / 2, inv.y - h / 2 + 6, w, 4);
+        ctx.fillRect(inv.x - w / 2 + 4, inv.y - h / 2 + 10, w - 14, 6);
+        ctx.fillRect(inv.x - w / 2, inv.y + h / 2 - 4, 5, 4);
+        ctx.fillRect(inv.x + w / 2 - 5, inv.y + h / 2 - 4, 5, 4);
+      }
+      // mata
+      ctx.fillStyle = '#050513';
+      ctx.fillRect(inv.x - 6, inv.y - 3, 4, 3);
+      ctx.fillRect(inv.x + 2, inv.y - 3, 4, 3);
+      ctx.shadowBlur = 0;
+    }
+
+    function draw(){
+      const time = performance.now() / 1000;
+      ctx.save();
+      if (shakeT > 0) ctx.translate((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
+
+      ctx.fillStyle = '#050513';
+      ctx.fillRect(-6, -6, W + 12, H + 12);
+
+      // bintang latar
+      ctx.fillStyle = '#ffffff55';
+      for (let i = 0; i < 40; i++){
+        const sx = (i * 97 + 31) % W;
+        const sy = (i * 61 + 17) % H;
+        const tw = Math.sin(time * 2 + i) * 0.5 + 0.5;
+        ctx.globalAlpha = 0.15 + tw * 0.35;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+      ctx.globalAlpha = 1;
+
+      // dinding neon
+      ctx.strokeStyle = '#2f3fff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#2f3fff';
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(4, 4, W - 8, H - 8);
+      ctx.shadowBlur = 0;
+
+      // garis dasar
+      ctx.strokeStyle = '#7bff4d';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#7bff4d';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(8, ship.y + shipH / 2 + 8);
+      ctx.lineTo(W - 8, ship.y + shipH / 2 + 8);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // bunker
+      for (const bk of bunkers){
+        for (const c of bk.cells){
+          if (!c.alive) continue;
+          ctx.fillStyle = '#2f6bff';
+          ctx.shadowColor = '#2f6bff';
+          ctx.shadowBlur = 5;
+          ctx.fillRect(c.x, c.y, c.w - 1, c.h - 1);
+          ctx.shadowBlur = 0;
+        }
+      }
+
+      // invader
+      for (const inv of invaders){
+        if (inv.alive) drawInvader(inv);
+      }
+
+      // peluru pemain
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#13dfff';
+      ctx.shadowBlur = 8;
+      for (const b of bullets) ctx.fillRect(b.x - 1.5, b.y - 6, 3, 10);
+      // peluru invader
+      ctx.fillStyle = '#ff4b96';
+      ctx.shadowColor = '#ff4b96';
+      for (const b of invBullets) ctx.fillRect(b.x - 1.5, b.y - 4, 3, 9);
+      ctx.shadowBlur = 0;
+
+      // partikel
+      for (const p of particles){
+        p.x += p.dx; p.y += p.dy; p.life -= 0.04;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+      particles = particles.filter(p => p.life > 0);
+
+      // kapal
+      if (state !== 'over') drawShip(ship.x, ship.y);
+
+      if (state === 'paused'){
+        ctx.fillStyle = '#050513b8';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#ffe34d';
+        ctx.font = '14px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('JEDA', W / 2, H / 2);
+      }
+      ctx.restore();
+    }
+
+    function loop(t){
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min((t - last) / 16.667, 3);
+      last = t;
+      accumulator += dt;
+      while (accumulator >= 1){
+        accumulator -= 1;
+        if (state === 'playing') step();
+      }
+      draw();
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (['arrowleft','arrowright','a','d',' ','enter','p'].includes(k)) e.preventDefault();
+      if (keys[k]) return;
+      keys[k] = true;
+      if (k === 'arrowleft' || k === 'a') ship.move = -1;
+      if (k === 'arrowright' || k === 'd') ship.move = 1;
+      if (k === ' ') fire();
+      if (k === 'enter'){
+        if (state === 'ready' || state === 'over') startGame();
+      }
+      if (k === 'p'){
+        if (state === 'playing'){ state = 'paused'; messageEl.textContent = 'JEDA — TEKAN P UNTUK LANJUT'; }
+        else if (state === 'paused'){ state = 'playing'; messageEl.textContent = ''; }
+      }
+    });
+    window.addEventListener('keyup', e => {
+      const k = e.key.toLowerCase();
+      keys[k] = false;
+      if ((k === 'arrowleft' || k === 'a') && !keys['arrowright'] && !keys['d']) ship.move = 0;
+      if ((k === 'arrowright' || k === 'd') && !keys['arrowleft'] && !keys['a']) ship.move = 0;
+    });
+
+    function pointerAim(clientX){
+      const rect = canvas.getBoundingClientRect();
+      ship.x = Math.max(shipW / 2 + 6, Math.min(W - shipW / 2 - 6, (clientX - rect.left) / rect.width * W));
+    }
+    canvas.addEventListener('pointermove', e => pointerAim(e.clientX));
+    canvas.addEventListener('pointerdown', e => {
+      pointerAim(e.clientX);
+      if (state === 'ready' || state === 'over') startGame();
+      else if (state === 'playing') fire();
+    });
+
+    let autofire = false;
+    document.querySelectorAll('.pad button').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        const act = btn.dataset.act;
+        if (act === 'left') ship.move = -1;
+        if (act === 'right') ship.move = 1;
+        if (act === 'fire') fire();
+        if (act === 'autofire'){
+          autofire = !autofire;
+          btn.style.color = autofire ? '#7bff4d' : '#55516e';
+        }
+      });
+      btn.addEventListener('pointerup', e => {
+        const act = btn.dataset.act;
+        if (act === 'left' || act === 'right') ship.move = 0;
+      });
+      btn.addEventListener('pointerleave', e => {
+        const act = btn.dataset.act;
+        if (act === 'left' || act === 'right') ship.move = 0;
+      });
+    });
+    // autofire loop
+    setInterval(() => { if (autofire && state === 'playing') fire(); }, 180);
+
+    messageEl.addEventListener('click', () => { if (state === 'ready' || state === 'over') startGame(); });
+
+    ship = {x: W / 2, y: H - 46, w: shipW, h: shipH, move: 0, cool: 0};
+    bullets = []; invBullets = []; invaders = makeInvaders(); bunkers = makeBunkers();
+    invDir = 1; invStepTimer = 0; invFireTimer = 0; moveInterval = 60;
+    score = 0; wave = 1; state = 'ready'; tick = 0; accumulator = 0; particles = []; shakeT = 0;
+    updateHud();
+    highScoreEl.textContent = fmt(highScore);
+    last = performance.now();
+    raf = requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>

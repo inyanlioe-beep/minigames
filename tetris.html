@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>Tetris — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme: dark; --yellow:#ffe34d; --cyan:#36e4ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,560px); text-align:center; }
+    .brand { color:var(--cyan); font-size:clamp(20px,5.5vw,34px); letter-spacing:4px; text-shadow:0 0 10px #13dfff,0 0 26px #0f7bff; margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(10px,3vw,19px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #382c8840; }
+    .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#fff; font-size:clamp(8px,2vw,11px); padding:2px 3px 13px; }
+    .hud span { color:var(--cyan); }
+    canvas { display:block; width:100%; height:auto; max-height:calc(100dvh - 200px); object-fit:contain; margin:0 auto; image-rendering:pixelated; background:#050513; border:1px solid #25223c; border-radius:3px; touch-action:none; }
+    @media (pointer:coarse) { canvas { max-height:calc(100dvh - 320px); } }
+    .message { min-height:30px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; text-shadow:0 0 10px #ffbd28; cursor:pointer; user-select:none; }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2.1; }
+    .controls b { color:#d3d0e6; }
+    .pad { display:none; width:170px; margin:12px auto 0; grid-template:repeat(2,48px)/repeat(4,48px); gap:3px; touch-action:none; }
+    .pad button { border:1px solid #494568; border-radius:7px; color:var(--cyan); background:#16152a; font-size:16px; font-family:inherit; touch-action:none; }
+    .pad button:active { background:#393354; }
+    .pad .left { grid-column:1; grid-row:1; }
+    .pad .rotate { grid-column:2; grid-row:1; }
+    .pad .right { grid-column:3; grid-row:1; }
+    .pad .down { grid-column:4; grid-row:1; }
+    .pad .drop { grid-column:1 / span 4; grid-row:2; }
+    @media (pointer:coarse) { .pad { display:grid; } .controls { display:none; } }
+    .topnav { display:inline-block; margin-top:14px; padding:10px 16px; color:#77758f; font-size:9px; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; }
+    .topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1 class="brand">TETRIS</h1>
+    <div class="subtitle">★&nbsp; NEON BLOCK ARCADE &nbsp;★</div>
+    <section class="screen" aria-label="Permainan Tetris">
+      <div class="hud"><div>SKOR <span id="score">000000</span></div><div>LEVEL <span id="level">1</span></div><div>HIGH <span id="highScore">000000</span></div></div>
+      <canvas id="game" width="336" height="588" aria-label="Arena Tetris"></canvas>
+      <div class="message" id="message">TEKAN ENTER / SENTUH UNTUK MULAI</div>
+    </section>
+    <div class="controls"><b>← →</b> gerak &nbsp;·&nbsp; <b>↑</b> putar &nbsp;·&nbsp; <b>↓</b> turun cepat &nbsp;·&nbsp; <b>SPASI</b> jatuh langsung &nbsp;·&nbsp; <b>ENTER</b> mulai &nbsp;·&nbsp; <b>P</b> jeda</div>
+    <div class="pad" aria-label="Kontrol sentuh"><button class="left" data-act="left">◀</button><button class="rotate" data-act="rotate">⟳</button><button class="right" data-act="right">▶</button><button class="down" data-act="down">▼</button><button class="drop" data-act="drop">▼▼ TURUN LANGSUNG</button></div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const levelEl = document.getElementById('level');
+    const messageEl = document.getElementById('message');
+    const highScoreEl = document.getElementById('highScore');
+
+    const W = canvas.width, H = canvas.height;
+    const cell = 28, cols = 12, rows = 21;
+
+    const SHAPES = [
+      [[1,1,1,1]],                     // I
+      [[1,1],[1,1]],                   // O
+      [[0,1,0],[1,1,1]],               // T
+      [[0,1,1],[1,1,0]],               // S
+      [[1,1,0],[0,1,1]],               // Z
+      [[1,0,0],[1,1,1]],               // J
+      [[0,0,1],[1,1,1]]                // L
+    ];
+    const COLORS = ['#36e4ff','#ffe34d','#b787ff','#7bff4d','#ff4b96','#4b7bff','#ff9b31'];
+
+    let board, piece, nextPiece, score, level, lines, state, dropTimer, last, raf, accumulator, highScore, particles, flashRows;
+
+    highScore = parseInt(localStorage.getItem('tetris_highscore')) || 0;
+    const fmt = n => String(n).padStart(6, '0');
+
+    function updateHud(){
+      scoreEl.textContent = fmt(score);
+      levelEl.textContent = level;
+      highScoreEl.textContent = fmt(Math.max(highScore, score));
+    }
+
+    function makePiece(){
+      const i = Math.floor(Math.random() * SHAPES.length);
+      return {shape: SHAPES[i].map(r => r.slice()), color: COLORS[i], x: Math.floor((cols - SHAPES[i][0].length) / 2), y: 0};
+    }
+
+    function startGame(){
+      board = Array.from({length: rows}, () => Array(cols).fill(null));
+      piece = makePiece();
+      nextPiece = makePiece();
+      score = 0; level = 1; lines = 0;
+      dropTimer = 0;
+      particles = [];
+      flashRows = [];
+      state = 'playing';
+      messageEl.textContent = '';
+      updateHud();
+    }
+
+    function collides(p, nx, ny, shape){
+      for (let y = 0; y < shape.length; y++){
+        for (let x = 0; x < shape[y].length; x++){
+          if (!shape[y][x]) continue;
+          const bx = nx + x, by = ny + y;
+          if (bx < 0 || bx >= cols || by >= rows) return true;
+          if (by >= 0 && board[by][bx]) return true;
+        }
+      }
+      return false;
+    }
+
+    function rotate(shape){
+      const h = shape.length, w = shape[0].length;
+      const out = Array.from({length: w}, () => Array(h).fill(0));
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++)
+          out[x][h - 1 - y] = shape[y][x];
+      return out;
+    }
+
+    function spawnParticles(cx, cy, color){
+      for (let i = 0; i < 6; i++){
+        const a = Math.random() * Math.PI * 2;
+        const s = 1 + Math.random() * 3;
+        particles.push({x: cx, y: cy, dx: Math.cos(a) * s, dy: Math.sin(a) * s, life: 1, color});
+      }
+    }
+
+    function lockPiece(){
+      for (let y = 0; y < piece.shape.length; y++){
+        for (let x = 0; x < piece.shape[y].length; x++){
+          if (piece.shape[y][x]){
+            const by = piece.y + y, bx = piece.x + x;
+            if (by < 0){ gameOver(); return; }
+            board[by][bx] = piece.color;
+          }
+        }
+      }
+      // cari baris penuh
+      const full = [];
+      for (let y = 0; y < rows; y++){
+        if (board[y].every(c => c)) full.push(y);
+      }
+      if (full.length){
+        flashRows = full;
+        score += [0, 100, 300, 500, 800][full.length] * level;
+        lines += full.length;
+        level = Math.floor(lines / 10) + 1;
+        updateHud();
+        setTimeout(() => {
+          for (const y of full){
+            for (let x = 0; x < cols; x++){
+              spawnParticles(x * cell + cell / 2, y * cell + cell / 2, board[y][x]);
+              board[y][x] = null;
+            }
+          }
+          for (let y = full.length - 1; y >= 0; y--){
+            let fy = full[y];
+            board.splice(fy, 1);
+            board.unshift(Array(cols).fill(null));
+          }
+          flashRows = [];
+        }, 160);
+      }
+      piece = nextPiece;
+      nextPiece = makePiece();
+      if (collides(piece, piece.x, piece.y, piece.shape)) gameOver();
+    }
+
+    function gameOver(){
+      state = 'over';
+      highScore = Math.max(highScore, score);
+      localStorage.setItem('tetris_highscore', highScore);
+      messageEl.textContent = 'GAME OVER — SKOR ' + fmt(score) + ' · TEKAN ENTER / SENTUH';
+      updateHud();
+    }
+
+    function move(dx){
+      if (!collides(piece, piece.x + dx, piece.y, piece.shape)) piece.x += dx;
+    }
+
+    function doRotate(){
+      const r = rotate(piece.shape);
+      if (!collides(piece, piece.x, piece.y, r)) piece.shape = r;
+      else if (!collides(piece, piece.x - 1, piece.y, r)){ piece.shape = r; piece.x -= 1; }
+      else if (!collides(piece, piece.x + 1, piece.y, r)){ piece.shape = r; piece.x += 1; }
+    }
+
+    function softDrop(){
+      if (!collides(piece, piece.x, piece.y + 1, piece.shape)){ piece.y++; score += 1; updateHud(); }
+      else lockPiece();
+    }
+
+    function hardDrop(){
+      while (!collides(piece, piece.x, piece.y + 1, piece.shape)){ piece.y++; score += 2; }
+      updateHud();
+      lockPiece();
+    }
+
+    function step(){
+      dropTimer++;
+      const interval = Math.max(6, 30 - (level - 1) * 2.5);
+      if (dropTimer >= interval && !flashRows.length){
+        dropTimer = 0;
+        if (!collides(piece, piece.x, piece.y + 1, piece.shape)) piece.y++;
+        else lockPiece();
+      }
+    }
+
+    function drawBlock(x, y, color, glow){
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = glow ? 14 : 4;
+      ctx.fillRect(x * cell + 2, y * cell + 2, cell - 4, cell - 4);
+      ctx.fillStyle = '#ffffff40';
+      ctx.fillRect(x * cell + 2, y * cell + 2, cell - 4, 3);
+      ctx.shadowBlur = 0;
+    }
+
+    function draw(){
+      const time = performance.now() / 1000;
+      ctx.fillStyle = '#050513';
+      ctx.fillRect(0, 0, W, H);
+
+      // dinding neon
+      ctx.strokeStyle = '#2f3fff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#2f3fff';
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(4, 4, W - 8, H - 8);
+      ctx.shadowBlur = 0;
+
+      // grid samar
+      ctx.strokeStyle = '#101028';
+      ctx.lineWidth = 1;
+      for (let x = 1; x < cols; x++){
+        ctx.beginPath(); ctx.moveTo(x * cell, 6); ctx.lineTo(x * cell, H - 6); ctx.stroke();
+      }
+      for (let y = 1; y < rows; y++){
+        ctx.beginPath(); ctx.moveTo(6, y * cell); ctx.lineTo(W - 6, y * cell); ctx.stroke();
+      }
+
+      // balok terpasang
+      for (let y = 0; y < rows; y++){
+        for (let x = 0; x < cols; x++){
+          if (board[y][x]) drawBlock(x, y, board[y][x], flashRows.includes(y));
+        }
+      }
+
+      if (state === 'playing' || state === 'paused'){
+        // bayangan drop
+        let gy = piece.y;
+        while (!collides(piece, piece.x, gy + 1, piece.shape)) gy++;
+        ctx.strokeStyle = piece.color + '60';
+        ctx.lineWidth = 1.5;
+        for (let y = 0; y < piece.shape.length; y++)
+          for (let x = 0; x < piece.shape[y].length; x++)
+            if (piece.shape[y][x]) ctx.strokeRect((piece.x + x) * cell + 3, (gy + y) * cell + 3, cell - 6, cell - 6);
+
+        // balok aktif
+        for (let y = 0; y < piece.shape.length; y++)
+          for (let x = 0; x < piece.shape[y].length; x++)
+            if (piece.shape[y][x]) drawBlock(piece.x + x, piece.y + y, piece.color, true);
+      }
+
+      // partikel
+      for (const p of particles){
+        p.x += p.dx; p.y += p.dy; p.life -= 0.04;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+      particles = particles.filter(p => p.life > 0);
+
+      if (state === 'paused'){
+        ctx.fillStyle = '#050513b8';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#ffe34d';
+        ctx.font = '14px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('JEDA', W / 2, H / 2);
+      }
+    }
+
+    function loop(t){
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min((t - last) / 16.667, 3);
+      last = t;
+      accumulator += dt;
+      while (accumulator >= 1){
+        accumulator -= 1;
+        if (state === 'playing') step();
+      }
+      draw();
+    }
+
+    window.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (['arrowup','arrowdown','arrowleft','arrowright',' ','enter','p'].includes(k)) e.preventDefault();
+      if (state === 'playing'){
+        if (k === 'arrowleft') move(-1);
+        if (k === 'arrowright') move(1);
+        if (k === 'arrowup') doRotate();
+        if (k === 'arrowdown') softDrop();
+        if (k === ' ') hardDrop();
+      }
+      if (k === 'enter'){
+        if (state === 'ready' || state === 'over') startGame();
+      }
+      if (k === 'p'){
+        if (state === 'playing'){ state = 'paused'; messageEl.textContent = 'JEDA — TEKAN P UNTUK LANJUT'; }
+        else if (state === 'paused'){ state = 'playing'; messageEl.textContent = ''; }
+      }
+    });
+
+    canvas.addEventListener('pointerdown', () => {
+      if (state === 'ready' || state === 'over') startGame();
+    });
+
+    document.querySelectorAll('.pad button').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        if (state !== 'playing') { if (state === 'ready' || state === 'over') startGame(); return; }
+        const act = btn.dataset.act;
+        if (act === 'left') move(-1);
+        if (act === 'right') move(1);
+        if (act === 'rotate') doRotate();
+        if (act === 'down') softDrop();
+        if (act === 'drop') hardDrop();
+      });
+    });
+
+    // swipe horizontal di arena
+    let touchStart = null;
+    canvas.addEventListener('pointermove', e => {
+      if (!touchStart || state !== 'playing') return;
+      const dx = e.clientX - touchStart.x;
+      if (Math.abs(dx) > 30){ move(dx > 0 ? 1 : -1); touchStart = {x: e.clientX, y: touchStart.y}; }
+    });
+    canvas.addEventListener('pointerdown', e => { touchStart = {x: e.clientX, y: e.clientY}; });
+    canvas.addEventListener('pointerup', () => { touchStart = null; });
+
+    messageEl.addEventListener('click', () => { if (state === 'ready' || state === 'over') startGame(); });
+
+    board = Array.from({length: rows}, () => Array(cols).fill(null));
+    piece = makePiece();
+    score = 0; level = 1; state = 'ready'; dropTimer = 0; accumulator = 0; particles = []; flashRows = [];
+    updateHud();
+    highScoreEl.textContent = fmt(highScore);
+    last = performance.now();
+    raf = requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>

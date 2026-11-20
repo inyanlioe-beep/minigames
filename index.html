@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050510">
+  <title>Neon Arcade — Pilih Game</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme: dark; --yellow:#ffe34d; --cyan:#36e4ff; --green:#7bff4d; --pink:#ff4b96; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:40px 20px; color:#fff; background:radial-gradient(ellipse at 50% 30%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; }
+    header { text-align:center; margin-bottom:40px; }
+    h1 { color:var(--yellow); font-size:clamp(24px,7vw,44px); letter-spacing:6px; margin:0 0 14px; text-shadow:0 0 10px #ffbd28,0 0 30px #ff7b13; }
+    .tagline { color:#8e8ba8; font-size:10px; letter-spacing:3px; line-height:1.8; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:24px; width:min(100%,720px); }
+    .card { display:block; text-decoration:none; color:#fff; padding:28px 24px; background:#0d0c1f; border:2px solid #353250; border-radius:14px; box-shadow:0 10px 34px #000c; transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+    .card:hover { transform:translateY(-5px); box-shadow:0 16px 44px #000e; }
+    .card h2 { font-size:14px; letter-spacing:2px; margin:0 0 12px; }
+    .card p { font-size:8px; color:#8e8ba8; line-height:2; margin:0 0 14px; }
+    .card .play { display:inline-block; font-size:9px; padding:9px 16px; border-radius:7px; border:1px solid currentColor; }
+    .card.pacman { border-color:#2f6bff88; }
+    .card.pacman:hover { border-color:#2f6bff; box-shadow:0 16px 44px #000e,0 0 26px #2f6bff44; }
+    .card.pacman h2 { color:var(--yellow); text-shadow:0 0 10px #ffbd28; }
+    .card.pacman .play { color:var(--yellow); }
+    .card.breakout { border-color:#13dfff88; }
+    .card.breakout:hover { border-color:#13dfff; box-shadow:0 16px 44px #000e,0 0 26px #13dfff44; }
+    .card.breakout h2 { color:var(--cyan); text-shadow:0 0 10px #13dfff; }
+    .card.breakout .play { color:var(--cyan); }
+    .card.snake { border-color:#7bff4d88; }
+    .card.snake:hover { border-color:#7bff4d; box-shadow:0 16px 44px #000e,0 0 26px #7bff4d44; }
+    .card.snake h2 { color:var(--green); text-shadow:0 0 10px #7bff4d; }
+    .card.snake .play { color:var(--green); }
+    .card.tetris { border-color:#b787ff88; }
+    .card.tetris:hover { border-color:#b787ff; box-shadow:0 16px 44px #000e,0 0 26px #b787ff44; }
+    .card.tetris h2 { color:#b787ff; text-shadow:0 0 10px #b787ff; }
+    .card.tetris .play { color:#b787ff; }
+    .card.invaders { border-color:#7bff4d88; }
+    .card.invaders:hover { border-color:#7bff4d; box-shadow:0 16px 44px #000e,0 0 26px #7bff4d44; }
+    .card.invaders h2 { color:var(--green); text-shadow:0 0 10px #7bff4d; }
+    .card.invaders .play { color:var(--green); }
+    .card.pong { border-color:#13dfff88; }
+    .card.pong:hover { border-color:#13dfff; box-shadow:0 16px 44px #000e,0 0 26px #13dfff44; }
+    .card.pong h2 { color:var(--cyan); text-shadow:0 0 10px #13dfff; }
+    .card.pong .play { color:var(--cyan); }
+    .card.flappy { border-color:#ffe34d88; }
+    .card.flappy:hover { border-color:#ffe34d; box-shadow:0 16px 44px #000e,0 0 26px #ffe34d44; }
+    .card.flappy h2 { color:var(--yellow); text-shadow:0 0 10px #ffbd28; }
+    .card.flappy .play { color:var(--yellow); }
+    .icon { font-size:30px; margin-bottom:16px; display:block; }
+    footer { margin-top:44px; color:#55516e; font-size:8px; letter-spacing:2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NEON ARCADE</h1>
+    <div class="tagline">★&nbsp; PILIH GAME &amp; LANGSUNG MAIN DI BROWSER &nbsp;★</div>
+  </header>
+
+  <nav class="grid" aria-label="Daftar game">
+    <a class="card pacman" href="pac-man.html">
+      <span class="icon">🟡</span>
+      <h2>PAC-MAN</h2>
+      <p>Makan semua titik di labirin neon, hindari empat hantu, dan kejar high score.</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card breakout" href="breakout.html">
+      <span class="icon">🧱</span>
+      <h2>BREAKOUT</h2>
+      <p>Hancurkan balok neon dengan bola pantul. Jangan sampai bola lolos!</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card snake" href="snake.html">
+      <span class="icon">🐍</span>
+      <h2>SNAKE</h2>
+      <p>Klasik ular neon — makan, membesar, dan jangan tabrak badan sendiri.</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card tetris" href="tetris.html">
+      <span class="icon">🟦</span>
+      <h2>TETRIS</h2>
+      <p>Susun balok jatuh, lengkapi baris, dan tingkatkan level tanpa henti.</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card invaders" href="space-invaders.html">
+      <span class="icon">👾</span>
+      <h2>SPACE INVADERS</h2>
+      <p>Tembak formasi alien yang terus turun. Bertahanlah selama mungkin!</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card pong" href="pong.html">
+      <span class="icon">🏓</span>
+      <h2>PONG</h2>
+      <p>Duel paddle klasik melawan CPU. Siapa lebih dulu mencetak 7 gol?</p>
+      <span class="play">► MAIN</span>
+    </a>
+
+    <a class="card flappy" href="flappy.html">
+      <span class="icon">🐤</span>
+      <h2>FLAPPY BIRD</h2>
+      <p>Ketuk untuk terbang melewati celah pipa neon. Satu sentuh salah, tamat!</p>
+      <span class="play">► MAIN</span>
+    </a>
+  </nav>
+
+  <footer>NEON ARCADE © 2026 · DIBUAT DENGAN HTML5 CANVAS</footer>
+</body>
+</html>

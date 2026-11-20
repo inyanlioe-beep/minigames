@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#050510">
+  <title>Pong — Neon Arcade</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    :root { color-scheme: dark; --yellow:#ffe34d; --cyan:#36e4ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px; color:#fff; background:radial-gradient(ellipse at 50% 45%,#171333 0,#09091a 48%,#03030a 100%); font-family:'Press Start 2P',monospace; -webkit-tap-highlight-color:transparent; }
+    .cabinet { width:min(100%,560px); text-align:center; }
+    .brand { color:var(--cyan); font-size:clamp(20px,5.5vw,34px); letter-spacing:4px; text-shadow:0 0 10px #13dfff,0 0 26px #0f7bff; margin:0 0 10px; }
+    .subtitle { color:#8e8ba8; font-size:9px; letter-spacing:2px; margin-bottom:22px; }
+    .screen { padding:clamp(10px,3vw,19px); background:#080817; border:3px solid #353250; border-radius:12px; box-shadow:0 0 0 5px #111022,0 16px 50px #000,0 0 34px #382c8840; }
+    .hud { display:flex; justify-content:space-between; align-items:center; gap:8px; color:#fff; font-size:clamp(8px,2vw,11px); padding:2px 3px 13px; }
+    .hud span { color:var(--cyan); }
+    canvas { display:block; width:100%; height:auto; max-height:calc(100dvh - 200px); object-fit:contain; margin:0 auto; image-rendering:pixelated; background:#050513; border:1px solid #25223c; border-radius:3px; touch-action:none; }
+    @media (pointer:coarse) { canvas { max-height:calc(100dvh - 300px); } }
+    .message { min-height:30px; padding-top:14px; color:var(--yellow); font-size:9px; line-height:1.8; text-shadow:0 0 10px #ffbd28; cursor:pointer; user-select:none; }
+    .controls { margin-top:12px; color:#77758f; font-size:8px; line-height:2.1; }
+    .controls b { color:#d3d0e6; }
+    .pad { display:none; width:150px; margin:12px auto 0; grid-template:repeat(2,48px)/repeat(3,48px); gap:3px; touch-action:none; }
+    .pad button { border:1px solid #494568; border-radius:7px; color:var(--cyan); background:#16152a; font-size:18px; font-family:inherit; touch-action:none; }
+    .pad button:active { background:#393354; }
+    .pad .up { grid-column:2; }.pad .left {grid-column:1;grid-row:2}.pad .down{grid-column:2;grid-row:2}.pad .right{grid-column:3;grid-row:2}
+    @media (pointer:coarse) { .pad { display:grid; } .controls { display:none; } }
+    .topnav { display:inline-block; margin-top:14px; padding:10px 16px; color:#77758f; font-size:9px; text-decoration:none; border:1px solid #494568; border-radius:7px; background:#16152a; }
+    .topnav:hover { color:var(--yellow); border-color:var(--yellow); }
+  </style>
+</head>
+<body>
+  <main class="cabinet">
+    <h1 class="brand">PONG</h1>
+    <div class="subtitle">★&nbsp; NEON PADDLE DUEL &nbsp;★</div>
+    <section class="screen" aria-label="Permainan Pong">
+      <div class="hud"><div>KAMU <span id="scoreP">0</span></div><div>GOL <span id="best">7</span></div><div>CPU <span id="scoreC">0</span></div></div>
+      <canvas id="game" width="504" height="588" aria-label="Arena Pong"></canvas>
+      <div class="message" id="message">TEKAN ENTER / SENTUH UNTUK MULAI · SAMPAI 7 GOL MENANG</div>
+    </section>
+    <div class="controls"><b>↑ ↓</b> / <b>W S</b> / <b>MOUSE</b> gerak &nbsp;·&nbsp; <b>ENTER</b> mulai &nbsp;·&nbsp; <b>P</b> jeda</div>
+    <div class="pad" aria-label="Kontrol sentuh"><button class="up" data-dir="up">▲</button><button class="down" data-dir="down">▼</button></div>
+    <a class="topnav" href="index.html">◄ PILIH GAME</a>
+  </main>
+  <script>
+  (() => {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scorePEl = document.getElementById('scoreP');
+    const scoreCEl = document.getElementById('scoreC');
+    const bestEl = document.getElementById('best');
+    const messageEl = document.getElementById('message');
+
+    const W = canvas.width, H = canvas.height;
+    const paddleW = 12, paddleH = 84;
+    const ballR = 7;
+    const WIN_SCORE = 7;
+
+    let player, cpu, ball, scoreP, scoreC, state, serveDir, last, raf, accumulator, particles, flashT, cpuSpeed;
+    let highScore = 0; // tidak dipakai, konsisten dengan game lain
+
+    function updateHud(){
+      scorePEl.textContent = scoreP;
+      scoreCEl.textContent = scoreC;
+    }
+
+    function resetBall(dir){
+      ball = {x: W / 2, y: H / 2, dx: 0, dy: 0, speed: 5.2, stuck: true, serveDir: dir};
+    }
+
+    function launch(){
+      if (!ball.stuck) return;
+      ball.stuck = false;
+      const ang = (Math.random() - 0.5) * 0.9;
+      ball.dx = Math.cos(ang) * ball.speed * ball.serveDir;
+      ball.dy = Math.sin(ang) * ball.speed;
+    }
+
+    function startGame(){
+      player = {x: W - 30, y: H / 2 - paddleH / 2, w: paddleW, h: paddleH, move: 0};
+      cpu = {x: 30, y: H / 2 - paddleH / 2, w: paddleW, h: paddleH, move: 0};
+      scoreP = 0;
+      scoreC = 0;
+      cpuSpeed = 4.4;
+      particles = [];
+      flashT = 0;
+      serveDir = 1;
+      resetBall(serveDir);
+      state = 'playing';
+      messageEl.textContent = '';
+      updateHud();
+    }
+
+    function spawnParticles(x, y, color){
+      for (let i = 0; i < 10; i++){
+        const a = Math.random() * Math.PI * 2;
+        const s = 1 + Math.random() * 3;
+        particles.push({x, y, dx: Math.cos(a) * s, dy: Math.sin(a) * s, life: 1, color});
+      }
+    }
+
+    function goal(scorer){
+      if (scorer === 'p'){ scoreP++; serveDir = -1; flashT = 10; }
+      else { scoreC++; serveDir = 1; }
+      updateHud();
+      if (scoreP >= WIN_SCORE || scoreC >= WIN_SCORE){
+        state = 'over';
+        messageEl.textContent = (scoreP > scoreC ? 'KAMU MENANG! ' : 'CPU MENANG! ') + scoreP + ' - ' + scoreC + ' · TEKAN ENTER / SENTUH';
+      } else {
+        resetBall(serveDir);
+        ball.stuck = true;
+        messageEl.textContent = scorer === 'p' ? 'GOL! SERVUS CPU' : 'KEBOBOL! SERVUS KAMU — SENTUH/SPASI UNTUK SERVUS';
+      }
+    }
+
+    function step(){
+      if (flashT > 0) flashT--;
+
+      if (state !== 'playing') return;
+
+      // gerak pemain (keyboard)
+      player.y += player.move * 6.6;
+      player.y = Math.max(6, Math.min(H - paddleH - 6, player.y));
+
+      // AI CPU
+      const target = ball.stuck ? H / 2 : ball.y;
+      const center = cpu.y + cpu.h / 2;
+      if (Math.abs(target - center) > 8){
+        cpu.y += Math.sign(target - center) * cpuSpeed * (ball.dx < 0 ? 1 : 0.55);
+        cpu.y = Math.max(6, Math.min(H - cpu.h - 6, cpu.y));
+      }
+
+      // bola
+      if (ball.stuck){
+        ball.x = player.x - ballR - 2;
+        ball.y = player.y + player.h / 2;
+      } else {
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+        if (ball.y < ballR + 6){ ball.y = ballR + 6; ball.dy = Math.abs(ball.dy); spawnParticles(ball.x, ball.y, '#55516e'); }
+        if (ball.y > H - ballR - 6){ ball.y = H - ballR - 6; ball.dy = -Math.abs(ball.dy); spawnParticles(ball.x, ball.y, '#55516e'); }
+
+        // pantulan paddle pemain (kanan)
+        if (ball.dx > 0 && ball.x + ballR >= player.x && ball.x + ballR <= player.x + player.w + 10 && ball.y >= player.y - ballR && ball.y <= player.y + player.h + ballR){
+          ball.x = player.x - ballR;
+          const hit = (ball.y - (player.y + player.h / 2)) / (player.h / 2);
+          ball.speed = Math.min(9.5, ball.speed + 0.25);
+          const ang = hit * 1.0;
+          ball.dx = -Math.cos(ang) * ball.speed;
+          ball.dy = Math.sin(ang) * ball.speed;
+          spawnParticles(ball.x, ball.y, '#36e4ff');
+        }
+
+        // pantulan paddle cpu (kiri)
+        if (ball.dx < 0 && ball.x - ballR <= cpu.x + cpu.w && ball.x - ballR >= cpu.x - 10 && ball.y >= cpu.y - ballR && ball.y <= cpu.y + cpu.h + ballR){
+          ball.x = cpu.x + cpu.w + ballR;
+          const hit = (ball.y - (cpu.y + cpu.h / 2)) / (cpu.h / 2);
+          ball.speed = Math.min(9.5, ball.speed + 0.25);
+          const ang = hit * 1.0;
+          ball.dx = Math.cos(ang) * ball.speed;
+          ball.dy = Math.sin(ang) * ball.speed;
+          spawnParticles(ball.x, ball.y, '#ff4b96');
+        }
+
+        // gol
+        if (ball.x > W + ballR * 2) goal('c');
+        else if (ball.x < -ballR * 2) goal('p');
+      }
+    }
+
+    function draw(){
+      const time = performance.now() / 1000;
+      ctx.fillStyle = '#050513';
+      ctx.fillRect(0, 0, W, H);
+
+      // dinding neon
+      ctx.strokeStyle = '#2f3fff';
+      ctx.lineWidth = 3;
+      ctx.shadowColor = '#2f3fff';
+      ctx.shadowBlur = 8;
+      ctx.strokeRect(4, 4, W - 8, H - 8);
+      ctx.shadowBlur = 0;
+
+      // garis tengah putus-putus
+      ctx.strokeStyle = '#ffffff30';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 14]);
+      ctx.beginPath();
+      ctx.moveTo(W / 2, 10);
+      ctx.lineTo(W / 2, H - 10);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // partikel
+      for (const p of particles){
+        p.x += p.dx; p.y += p.dy; p.life -= 0.05;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+      particles = particles.filter(p => p.life > 0);
+
+      // paddle cpu (kiri, pink)
+      ctx.fillStyle = '#ff4b96';
+      ctx.shadowColor = '#ff4b96';
+      ctx.shadowBlur = 12;
+      ctx.fillRect(cpu.x, cpu.y, cpu.w, cpu.h);
+      // paddle pemain (kanan, cyan)
+      ctx.fillStyle = '#36e4ff';
+      ctx.shadowColor = '#13dfff';
+      ctx.fillRect(player.x, player.y, player.w, player.h);
+
+      // bola
+      if (state !== 'over' || flashT > 0){
+        const pulse = Math.sin(time * 10) * 0.5 + 0.5;
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#ffe34d';
+        ctx.shadowBlur = 12 + pulse * 6;
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ballR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // flash gol
+      if (flashT > 0){
+        ctx.fillStyle = '#ffe34d20';
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      if (state === 'paused'){
+        ctx.fillStyle = '#050513b8';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#ffe34d';
+        ctx.font = '14px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('JEDA', W / 2, H / 2);
+      }
+    }
+
+    function loop(t){
+      raf = requestAnimationFrame(loop);
+      const dt = Math.min((t - last) / 16.667, 3);
+      last = t;
+      accumulator += dt;
+      while (accumulator >= 1){
+        accumulator -= 1;
+        step();
+      }
+      draw();
+    }
+
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      const k = e.key.toLowerCase();
+      if (['arrowup','arrowdown','w','s',' ','enter','p'].includes(k)) e.preventDefault();
+      if (keys[k]) return;
+      keys[k] = true;
+      if (k === 'arrowup' || k === 'w') player.move = -1;
+      if (k === 'arrowdown' || k === 's') player.move = 1;
+      if (k === ' ' && state === 'playing') launch();
+      if (k === 'enter'){
+        if (state === 'ready' || state === 'over') startGame();
+        else if (state === 'playing') launch();
+      }
+      if (k === 'p'){
+        if (state === 'playing'){ state = 'paused'; messageEl.textContent = 'JEDA — TEKAN P UNTUK LANJUT'; }
+        else if (state === 'paused'){ state = 'playing'; messageEl.textContent = ''; }
+      }
+    });
+    window.addEventListener('keyup', e => {
+      const k = e.key.toLowerCase();
+      keys[k] = false;
+      if ((k === 'arrowup' || k === 'w') && !keys['arrowdown'] && !keys['s']) player.move = 0;
+      if ((k === 'arrowdown' || k === 's') && !keys['arrowup'] && !keys['w']) player.move = 0;
+    });
+
+    function pointerAim(clientY){
+      const rect = canvas.getBoundingClientRect();
+      const y = (clientY - rect.top) / rect.height * H;
+      player.y = Math.max(6, Math.min(H - player.h - 6, y - player.h / 2));
+    }
+    canvas.addEventListener('pointermove', e => pointerAim(e.clientY));
+    canvas.addEventListener('pointerdown', e => {
+      pointerAim(e.clientY);
+      if (state === 'ready' || state === 'over') startGame();
+      else if (state === 'playing' && ball.stuck) launch();
+    });
+    messageEl.addEventListener('click', () => {
+      if (state === 'ready' || state === 'over') startGame();
+      else if (state === 'playing' && ball.stuck) launch();
+    });
+
+    document.querySelectorAll('.pad button').forEach(btn => {
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        if (btn.dataset.dir === 'up') player.move = -1;
+        if (btn.dataset.dir === 'down') player.move = 1;
+        if (state === 'playing' && ball.stuck) launch();
+      });
+      btn.addEventListener('pointerup', () => { player.move = 0; });
+      btn.addEventListener('pointerleave', () => { player.move = 0; });
+    });
+
+    player = {x: W - 30, y: H / 2 - paddleH / 2, w: paddleW, h: paddleH, move: 0};
+    cpu = {x: 30, y: H / 2 - paddleH / 2, w: paddleW, h: paddleH, move: 0};
+    scoreP = 0; scoreC = 0; cpuSpeed = 4.4; particles = []; flashT = 0;
+    resetBall(1);
+    state = 'ready';
+    updateHud();
+    last = performance.now();
+    raf = requestAnimationFrame(loop);
+  })();
+  </script>
+</body>
+</html>
